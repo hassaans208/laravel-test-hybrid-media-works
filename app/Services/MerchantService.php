@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Hash;
 use App\Jobs\PayoutOrderJob;
 use App\Models\Affiliate;
 use App\Models\Merchant;
 use App\Models\Order;
 use App\Models\User;
+use DB;
 
 class MerchantService
 {
@@ -20,7 +22,40 @@ class MerchantService
      */
     public function register(array $data): Merchant
     {
-        // TODO: Complete this method
+        $validatedData = validator()->make($data, [
+            'name' => 'required',
+            'email' => 'required|email',
+            'api_key' => 'required',
+            'domain' => 'required',
+            'display_name' => 'required'
+        ]);
+
+        $validatedData = $validatedData->validated();
+
+        try {
+            DB::beginTransaction();
+
+            $user = User::create([
+                'name' => $validatedData['name'],
+                'email' => $validatedData['email'],
+                'password' => $validatedData['api_key'],
+                'type' => User::TYPE_MERCHANT,
+            ]);
+
+            $merchant = $user->merchant()->create([
+                'domain' => $validatedData['domain'],
+                'display_name' => $validatedData['name'],
+            ]);
+
+            DB::commit();
+
+            return $merchant;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            throw new \Exception('Failed to create merchant: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**
@@ -32,6 +67,30 @@ class MerchantService
     public function updateMerchant(User $user, array $data)
     {
         // TODO: Complete this method
+        try {
+            DB::beginTransaction();
+
+            $user->update([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => $data['api_key'],
+            ]);
+
+            $merchant = $user->merchant;
+            $merchant->update([
+                'domain' => $data['domain'],
+                'display_name' => $data['name'],
+            ]);
+
+            DB::commit();
+
+            return $merchant;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            // Handle exception or log error
+            throw new \Exception('Failed to update merchant: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**
@@ -43,7 +102,19 @@ class MerchantService
      */
     public function findMerchantByEmail(string $email): ?Merchant
     {
-        // TODO: Complete this method
+        try {
+            $user = User::where('email', $email)->first();
+
+            if (! $user) return null;
+
+            $merchant = $user->merchant;
+
+            return $merchant;
+
+        } catch (\Exception $e) {
+            // Handle exception or log error
+            throw new \Exception('Failed to find merchant: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**
@@ -55,6 +126,14 @@ class MerchantService
      */
     public function payout(Affiliate $affiliate)
     {
-        // TODO: Complete this method
+        try {
+            $affiliateUnpaidOrders = $affiliate->orders()->where('payout_status', Order::STATUS_UNPAID);
+            $affiliateUnpaidOrders->each(fn (Order $order) => PayoutOrderJob::dispatch($order));
+
+            return true;
+
+        } catch (\Exception $e) {
+            throw new \Exception('Failed to payout affiliate: ' . $e->getMessage(), 0, $e);
+        }
     }
 }

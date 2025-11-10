@@ -22,6 +22,32 @@ class MerchantController extends Controller
      */
     public function orderStats(Request $request): JsonResponse
     {
-        // TODO: Complete this method
+        try {
+            $from = Carbon::parse($request->input('from', now()->subDay()));
+            $to = Carbon::parse($request->input('to', now()));
+            $merchant = $request->user()->merchant;
+
+            throw_if(! $merchant, new \Exception('Merchant Not Found!'));
+
+            $ordersQuery = $merchant->orders()
+            ->whereBetween('created_at', [$from, $to])
+            ->get();
+            
+            $noAffiliateCommissionsOwed = $ordersQuery->whereNull('affiliate_id')->sum('commission_owed');
+
+            $orderCount = $ordersQuery->count();
+            $orderCommissionsOwed = $ordersQuery->sum('commission_owed');
+            $orderCommissionsOwed -= $noAffiliateCommissionsOwed;
+            $orderRevenue = $ordersQuery->sum('subtotal');
+
+            return response()->json([
+                'count' => $orderCount,
+                'commissions_owed' => $orderCommissionsOwed,
+                'revenue' => $orderRevenue
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
     }
 }
